@@ -6,7 +6,17 @@
             "api_base_url": "https://api.deepseek.com",
             "api_request_address": "v1/chat/completions",
             "is_origin_reasoning": true,
-            "is_valid": false
+            "is_valid": false,
+            "proxy_open": false
+        },
+        "PPIO/DeepSeek-R1-0528": {
+            "model_id": "deepseek/deepseek-r1-0528",
+            "api_key": "*************",
+            "api_base_url": "https://api.ppinfra.com/v3/openai",
+            "api_request_address": "chat/completions",
+            "is_origin_reasoning": false,
+            "is_valid": false,
+            "proxy_open": false
         },
         "Volcengine/DeepSeek-R1": {
             "model_id": "deepseek-r1-250120",
@@ -14,7 +24,8 @@
             "api_base_url": "https://ark.cn-beijing.volces.com/api",
             "api_request_address": "v3/chat/completions",
             "is_origin_reasoning": true,
-            "is_valid": true
+            "is_valid": true,
+            "proxy_open": false
         }
     },
     "target_models": {
@@ -24,7 +35,8 @@
             "api_base_url": "https://api.anthropic.com",
             "api_request_address": "v1/messages",
             "model_format": "anthropic",
-            "is_valid": false
+            "is_valid": false,
+            "proxy_open": true
         },
         "DMXapi/Claude-3-7-Sonnet": {
             "model_id": "claude-3-7-sonnet-20250219",
@@ -32,7 +44,8 @@
             "api_base_url": "https://www.dmxapi.cn",
             "api_request_address": "v1/chat/completions",
             "model_format": "openai",
-            "is_valid": true
+            "is_valid": true,
+            "proxy_open": false
         },
         "OpenRouter/Claude-3-7-Sonnet": {
             "model_id": "anthropic/claude-3.7-sonnet",
@@ -40,23 +53,26 @@
             "api_base_url": "https://openrouter.ai/api",
             "api_request_address": "v1/chat/completions",
             "model_format": "openai",
-            "is_valid": true
+            "is_valid": true,
+            "proxy_open": false
         },
-        "Gemini/Gemini-2.0-Flash": {
-            "model_id": "gemini-2.0-flash",
+        "Gemini/Gemini-2.5-Flash": {
+            "model_id": "gemini-2.5-flash-preview-04-17",
             "api_key": "***********",
             "api_base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
             "api_request_address": "chat/completions",
             "model_format": "openai",
-            "is_valid": true
+            "is_valid": true,
+            "proxy_open": true
         },
-        "Gemini/Gemini-2.0-Pro": {
-            "model_id": "gemini-2.0-pro-exp",
+        "Gemini/Gemini-2.5-Pro": {
+            "model_id": "gemini-2.5-pro-preview-05-06",
             "api_key": "***********",
             "api_base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
             "api_request_address": "chat/completions",
             "model_format": "openai",
-            "is_valid": true
+            "is_valid": true,
+            "proxy_open": true
         }
     },
     "proxy": {
@@ -68,24 +84,26 @@
             "*"
         ],
         "log_level": "INFO",
-        "api_key": "123456"
+        "api_key": "123456",
+        "save_deepseek_tokens":false,
+        "save_deepseek_tokens_max_tokens": 5
     },
     "composite_models": {
         "deepclaude": {
             "model_id": "deepclaude",
-            "reasoner_models": "Volcengine/DeepSeek-R1",
+            "reasoner_models": "PPIO/DeepSeek-R1-0528",
             "target_models": "DMXapi/Claude-3-7-Sonnet",
             "is_valid": true
         },
         "deepgeminiflash": {
             "model_id": "deepgeminiflash",
-            "reasoner_models": "Volcengine/DeepSeek-R1",
+            "reasoner_models": "PPIO/DeepSeek-R1-0528",
             "target_models": "Gemini/Gemini-2.0-Flash",
             "is_valid": true
         },
         "deepgeminipro": {
             "model_id": "deepgeminipro",
-            "reasoner_models": "Volcengine/DeepSeek-R1",
+            "reasoner_models": "PPIO/DeepSeek-R1-0528",
             "target_models": "Gemini/Gemini-2.0-Pro",
             "is_valid": true
         }

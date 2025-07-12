@@ -4,7 +4,7 @@
 <a href="https://github.com/getasterisk/deepclaude"> Inspiration from getasterisk/deepclaude</a>
 
 [![GitHub license](https://img.erlich.fun/personal-blog/uPic/deepclaude.svg)](#)
-[![Compatible with](https://img.shields.io/badge/-ChatGPT-412991?style=flat-square&logo=openai&logoColor=FFFFFF)](https://openai.com)
+[![Compatible with](https://img.erlich.fun/personal-blog/uPic/-ChatGPT-412991.jpg)](https://openai.com)
 
 </div>
 
@@ -12,12 +12,13 @@
 <h4 style="color: #FF9909"> 特别说明：
 <br />
 在最新的 1.0 版本，我们已经实现了配置界面，部署更简单。
-1.编程：推荐 DeepSeek r1 + Claude 3.7 Sonnet 组合，效果最好；
-2.内容创作：推荐 DeepSeek r1 + Gemini 2.0 Flash 或 Gemini 2.0 Pro 组合，效果最好，并且可以完全免费使用。
+1.编程：推荐 DeepSeek r1 + Claude Sonnet 4 组合，效果最好；
+2.内容创作：推荐 DeepSeek r1 + Gemini 2.5 Flash 或 Gemini 2.5 Pro 组合，效果最好，并且可以完全免费使用。
 <br />
 对于不太会部署，只是希望使用上最强组合模型的朋友，可以直接访问 Erlich 个人网站自助购买按量付费的 API：https://erlich.fun/deepclaude-pricing
-也可以直接联系 Erlich（微信号：erlichliu1）</h4>
+也可以直接联系 Erlich（微信号：geekthings）</h4>
 </div>
+
 
 
 <details>
@@ -31,10 +32,36 @@
 ---
 
 <details>
+<summary><strong> 友情链接：Ten Agent: https://github.com/TEN-framework/TEN-Agent </strong></summary>
+</details>
+
+---
+
+<details>
 <summary><strong>更新日志：</strong></summary> 
-<div>
+2025-05-29.2：更新 Docker Image 运行平台支持，可以通过 `docker pull erlichliu/deepclaude ` 拉取到本地运行，自动选择合适的平台版本。
+
+2025-05-29.1：feat: 系统配置添加 deepseek r1 的 max_tokens 设置，降低成本。
+
+
+2025-05-27.2: 支持配置文件的导入导出模式，方便升级或部署后反复进行配置。
+
+2025-05-27.1: 适配 Gemini API 流式响应上的结束标记处理顺序问题。
+
+2025-05-22.3: 优化 openai 兼容格式返回结束标志，改善近期 deepgeminipro 中断回复的问题。
+
+2025-05-22.2: 优化组合模型之间的衔接 Prompt，提高不同模型本身的能力表达。
+
+2025-05-22.1: 支持可关闭 gemini 2.5 flash 的思考，节省 tokens 消耗，针对 gemini 2.5 pro 采用提示词优化的方式也可以平均每次降低 30% 的成本消耗。
+
+2025-05-16.1: 支持更友好的多段落报错返回，尤其是针对超过上下文长度的报错返回，可以更好的适配前端界面的报错。
+
+2025-03-22.1: 支持根据不同模型设置是否开启代理，提高运行效率。
+
+2025-03-10.1: deepseek r1 推理部分 max_token 改为 5，节省输出 Tokens 消耗；非流式输出部分增加 reasoning_content 数据字段的返回；将非流式输出设置为缺省值，方便 dify 等工具使用。
+
 2025-03-05.1: 更改docker compose配置, 使用volume将容器配置文件绑定至本地, 避免重启容器时丢失配置. 同时设置失败自动重启.
-   
+
 2025-03-02.1: 更新 1.0 版本，支持图形化配置界面，取消 .env 配置，预配置模板，配置更方便
 
 2025-02-25.1: 添加 system message 对于 Claude 3.5 Sonnet 的支持
@@ -100,40 +127,83 @@
 
 ## 1. 获得运行所需的 API
 
-1. 获取 DeepSeek API，因为最近 DeepSeek 官方的供应能里不足，所以经常无法使用，不推荐。目前更推荐使用火山云引擎（我们已经做了预配置，你只需注册后获取 api key 即可），点击链接注册可以获得 15 元代金券，免费用流畅的 deepseek r1 ：https://www.volcengine.com/experience/ark?utm_term=202502dsinvite&ac=DSASUQY5&rc=AK7Q5AEU  邀请码：AK7Q5AEU
+1. 获取 DeepSeek API，推荐采用 PPIO（派欧云）最新的 DeepSeek R1 0528，点击链接注册，新用户可以获得 15 元免费额度，再邀请人还可以获得 30 元：https://ppio.cn/user/register?invited_by=TXTPQF
 2. 获取 Claude 的 API KEY：https://console.anthropic.com。(也可采用其他中转服务，如 DMXapi、Openrouter 以及其他服务商的 API KEY)
 3. 获取 Gemini 的 API KEY：https://aistudio.google.com/apikey (有免费的额度，日常够用)
 
-## 2. 开始运行（本地运行）
 
-Step 1. 克隆本项目到适合的文件夹并进入项目
+
+## 2. 开始运行（使用 Docker）
+
+** 极其推荐 Zeabur，然后通过 Zeabur 来购买新加坡或日本的服务器是最划算的，只要 2 美金就足够，如果你是新用户，可以点击：https://zeabur.com/referral?referralCode=ErlichLiu 我们一起获得奖励额度 **
+
+✅ Step 1. 安装 Docker
+
+请确保你已经安装了 Docker Desktop（适用于 macOS 和 Windows），或 Docker Engine（适用于 Linux）。
+
+Windows 下载安装地址：https://docs.docker.com/desktop/setup/install/windows-install/
+macOS 下载安装地址：https://docs.docker.com/desktop/setup/install/mac-install/
+
+安装完成后，确保在终端中运行以下命令没有报错：
+
+`docker --version`
+
+
+
+🚀 Step 2. 拉取镜像并运行项目
+
+打开终端或命令行，输入以下命令：
+
+`docker run -p 8000:8000 erlichliu/deepclaude:latest`
+
+运行后你可以访问：
+
+`http://localhost:8000/config`
+
+即可使用该服务。
+
+⸻
+
+📦 可选：后台运行 + 自动重启（建议部署时使用）
+
+`docker run -d --restart unless-stopped -p 8000:8000 erlichliu/deepclaude:latest`
+
+
+⸻
+
+🧪 开发者：如果你想构建自己的镜像（而不是用已有镜像）
 
 ```bash
 git clone https://github.com/ErlichLiu/DeepClaude.git
 cd DeepClaude
+docker build -t deepclaude:dev .
+docker run -p 8000:8000 deepclaude:dev
 ```
 
-Step 2. 通过 uv 安装依赖（如果你还没有安装 uv，请看下方注解）
+⸻
 
-```bash
-# 通过 uv 在本地创建虚拟环境，并安装依赖
-uv sync
-# macOS 激活虚拟环境
-source .venv/bin/activate
-# Windows 激活虚拟环境
-.venv\Scripts\activate
-```
-
-Step 3. 本地运行
-```bash
-uvicorn app.main:app --port 8000
-```
-
-Step 4. 打开浏览器访问 http://127.0.0.1:8000/config 输入默认 api key：123456 （如果你运行在云端，请尽快登录后在系统设置内更改，避免被其他人盗用，本地登录则无需更改）
+Step 4. 开始配置：打开浏览器访问 http://localhost:8000/config 输入默认 api key：123456 （如果你运行在云端，请尽快登录后在系统设置内更改，避免被其他人盗用，本地登录则无需更改）
 ![配置授权页面](https://img.erlich.fun/personal-blog/uPic/HW7YfK.png)
 
 按照提示在“推理模型这一栏”配置一个火山云引擎的 api key，点击编辑，粘贴进去 api key 后点击保存即可
 ![配置火山云引擎的 api key](https://img.erlich.fun/personal-blog/uPic/PNfOcU.png)
+
+`是否支持原生推理`选项控制了两套针对推理模型返回思考内容.
+
+- 支持原生推理: 推理模型在返回体`reasoning_content`字段返回推理内容, 在`content`字段返回回答内容. 例如:
+  - DeepSeek官方 `deepseek-reasoner`
+  - Siliconflow `deepseek-ai/deepseek-r1`
+- 不支持原生推理: 推理模型在`content`字段中以`<think></think>`标签包裹推理内容返回. 例如:
+  - 派欧算力云 `deepseek/deepseek-r1`, `deepseek/deepseek-r1/community`, `deepseek/deepseek-r1-turbo`
+  - AiHubMix `aihubmix-DeepSeek-R1`
+  - Cluade 3.7 Sonnet Thinking
+
+大多数服务商提供的deepseek-r1均支持原生推理, 所以推荐默认开启. 如果不确定可以在外部使用聊天框架(Chatbox)测试模型响应内容. 如果出现`<think></think>`标签则需要关闭`支持原生推理`选项.
+
+不支持原生推理的deepseek-r1可能需要prompt来触发思考, 若日志中收集到推理内容长度一直为0, 而且出现`<think>`字样, 则考虑检查此因素:
+
+![image](https://img.erlich.fun/personal-blog/uPic/63bf0a9f-19cf-49d4-aa28-e916b2a62138.png)
+
 
 按照提示在“目标模型”配置一个 Claude 3.7 Sonnet 的 api key 以及一个 Gmeini 的 api key，Gemini 的 api key 可以在：https://aistudio.google.com/apikey 获取
 ![配置 Claude 3.7 Sonnet 的 api key](https://img.erlich.fun/personal-blog/uPic/ydKSHW.png)
@@ -166,10 +236,10 @@ API 密钥为默认的 123456，如果你在系统设置内进行修改，则改
 
 # Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=ErlichLiu/DeepClaude&type=Date)](https://star-history.com/#ErlichLiu/DeepClaude&Date)
+[![Star History Chart](https://img.erlich.fun/personal-blog/uPic/DeepClaude&type=Date.jpg)](https://star-history.com/#ErlichLiu/DeepClaude&Date)
 
 # Buy me a coffee
-<img src="https://img.erlich.fun/personal-blog/uPic/IMG_3625.JPG" alt="微信赞赏码" style="width: 400px;"/>
+<img src="https://img.erlich.fun/personal-blog/uPic/IMG_3625.jpeg" alt="微信赞赏码" style="width: 400px;"/>
 
 # About Me
 - Email: erlichliu@gmail.com

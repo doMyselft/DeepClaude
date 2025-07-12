@@ -22,7 +22,9 @@ class DeepClaude:
         claude_api_url: str = "https://api.anthropic.com/v1/messages",
         claude_provider: str = "anthropic",
         is_origin_reasoning: bool = True,
-        proxy: str = None,
+        reasoner_proxy: str = None,
+        target_proxy: str = None,
+        system_config: dict = None
     ):
         """初始化 API 客户端
 
@@ -33,11 +35,19 @@ class DeepClaude:
             claude_api_url: Claude API地址
             claude_provider: Claude 提供商
             is_origin_reasoning: 是否使用原始推理
-            proxy: 代理服务器地址
+            reasoner_proxy: reasoner模型代理服务器地址
+            target_proxy: target模型代理服务器地址
+            system_config: 系统配置，包含 save_deepseek_tokens 等设置
         """
-        self.deepseek_client = DeepSeekClient(deepseek_api_key, deepseek_api_url, proxy=proxy)
+        self.system_config = system_config or {}
+        self.deepseek_client = DeepSeekClient(
+            deepseek_api_key, 
+            deepseek_api_url, 
+            proxy=reasoner_proxy,
+            system_config=self.system_config
+        )
         self.claude_client = ClaudeClient(
-            claude_api_key, claude_api_url, claude_provider, proxy=proxy
+            claude_api_key, claude_api_url, claude_provider, proxy=target_proxy
         )
         self.is_origin_reasoning = is_origin_reasoning
 
@@ -121,7 +131,43 @@ class DeepClaude:
                         break
             except Exception as e:
                 logger.error(f"处理 DeepSeek 流时发生错误: {e}")
-                await claude_queue.put("")
+                # 构造错误响应
+                error_message = str(e)
+                error_info = {
+                    "message": error_message,
+                    "type": "api_error",
+                    "code": "invalid_request_error"
+                }
+                
+                # 处理常见的错误信息
+                if "Input length" in error_message:
+                    error_info["message"] = "输入的上下文内容过长，超过了模型的最大处理长度限制。请减少输入内容或分段处理。"
+                    error_info["message_zh"] = "输入的上下文内容过长，超过了模型的最大处理长度限制。请减少输入内容或分段处理。"
+                    error_info["message_en"] = error_message
+                elif "InvalidParameter" in error_message:
+                    error_info["message"] = "请求参数无效，请检查输入内容。"
+                    error_info["message_zh"] = "请求参数无效，请检查输入内容。"
+                    error_info["message_en"] = error_message
+                elif "BadRequest" in error_message:
+                    error_info["message"] = "请求格式错误，请检查输入内容。"
+                    error_info["message_zh"] = "请求格式错误，请检查输入内容。"
+                    error_info["message_en"] = error_message
+
+                error_response = {
+                    "id": chat_id,
+                    "object": "chat.completion.chunk",
+                    "created": created_time,
+                    "model": deepseek_model,
+                    "error": error_info
+                }
+                await output_queue.put(
+                    f"data: {json.dumps(error_response)}\n\n".encode("utf-8")
+                )
+                # 发送结束标记
+                await output_queue.put(b"data: [DONE]\n\n")
+                # 标记任务结束
+                await output_queue.put(None)
+                return
             # 用 None 标记 DeepSeek 任务结束
             logger.info("DeepSeek 任务处理完成，标记结束")
             await output_queue.put(None)
@@ -140,8 +186,9 @@ class DeepClaude:
                 # 构造 Claude 的输入消息
                 claude_messages = messages.copy()
                 combined_content = f"""
-                Here's my another model's reasoning process:\n{reasoning}\n\n
-                Based on this reasoning, provide your response directly to me:"""
+                ******The above is user information*****
+The following is the reasoning process of another model:****\n{reasoning}\n\n ****
+Based on this reasoning, combined with your knowledge, when the current reasoning conflicts with your knowledge, you are more confident that you can adopt your own knowledge, which is completely acceptable. Please provide the user with a complete answer directly. You do not need to repeat the request or make your own reasoning. Please be sure to reply completely:"""
 
                 # 提取 system message 并同时过滤掉 system messages
                 system_content = ""
@@ -202,6 +249,43 @@ class DeepClaude:
                         )
             except Exception as e:
                 logger.error(f"处理 Claude 流时发生错误: {e}")
+                # 构造错误响应
+                error_message = str(e)
+                error_info = {
+                    "message": error_message,
+                    "type": "api_error",
+                    "code": "invalid_request_error"
+                }
+                
+                # 处理常见的错误信息
+                if "Input length" in error_message:
+                    error_info["message"] = "输入的上下文内容过长，超过了模型的最大处理长度限制。请减少输入内容或分段处理。"
+                    error_info["message_zh"] = "输入的上下文内容过长，超过了模型的最大处理长度限制。请减少输入内容或分段处理。"
+                    error_info["message_en"] = error_message
+                elif "InvalidParameter" in error_message:
+                    error_info["message"] = "请求参数无效，请检查输入内容。"
+                    error_info["message_zh"] = "请求参数无效，请检查输入内容。"
+                    error_info["message_en"] = error_message
+                elif "BadRequest" in error_message:
+                    error_info["message"] = "请求格式错误，请检查输入内容。"
+                    error_info["message_zh"] = "请求格式错误，请检查输入内容。"
+                    error_info["message_en"] = error_message
+
+                error_response = {
+                    "id": chat_id,
+                    "object": "chat.completion.chunk",
+                    "created": created_time,
+                    "model": claude_model,
+                    "error": error_info
+                }
+                await output_queue.put(
+                    f"data: {json.dumps(error_response)}\n\n".encode("utf-8")
+                )
+                # 发送结束标记
+                await output_queue.put(b"data: [DONE]\n\n")
+                # 标记任务结束
+                await output_queue.put(None)
+                return
             # 用 None 标记 Claude 任务结束
             logger.info("Claude 任务处理完成，标记结束")
             await output_queue.put(None)
@@ -262,8 +346,9 @@ class DeepClaude:
         claude_messages = messages.copy()
 
         combined_content = f"""
-            Here's my another model's reasoning process:\n{reasoning}\n\n
-            Based on this reasoning, provide your response directly to me:"""
+            ******The above is user information*****
+The following is the reasoning process of another model:****\n{reasoning}\n\n ****
+Based on this reasoning, combined with your knowledge, when the current reasoning conflicts with your knowledge, you are more confident that you can adopt your own knowledge, which is completely acceptable. Please provide the user with a complete answer directly. You do not need to repeat the request or make your own reasoning. Please be sure to reply completely:"""
 
         # 提取 system message 并同时从原始 messages 中过滤掉 system messages
         system_content = ""
@@ -342,4 +427,5 @@ class DeepClaude:
             }
         except Exception as e:
             logger.error(f"获取 Claude 响应时发生错误: {e}")
+            # 直接抛出异常，不再继续处理
             raise e

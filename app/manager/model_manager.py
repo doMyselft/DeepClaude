@@ -126,6 +126,13 @@ class ModelManager:
             proxy = proxy_config.get("proxy_address")
             logger.info(f"模型 {model_name} 将使用代理: {proxy}")
         
+        # 默认设置为True, 和默认行为保持一致（只要全局开始proxy_open, 则模型默认开启proxy_open）
+        reasoner_proxy = proxy if reasoner_config.get('proxy_open', True) else None
+        target_proxy = proxy if target_config.get('proxy_open', True) else None
+        
+        # 获取系统配置
+        system_config = self.config.get("system", {})
+        
         # 创建模型实例
         if target_config.get("model_format", "") == "anthropic":
             # 创建 DeepClaude 实例
@@ -136,7 +143,9 @@ class ModelManager:
                 claude_api_url=f"{target_config['api_base_url']}/{target_config['api_request_address']}",
                 claude_provider="anthropic",
                 is_origin_reasoning=reasoner_config.get("is_origin_reasoning", self.is_origin_reasoning),
-                proxy=proxy,
+                reasoner_proxy=reasoner_proxy,
+                target_proxy=target_proxy,
+                system_config=system_config,
             )
         else:
             # 创建 OpenAICompatibleComposite 实例
@@ -146,7 +155,9 @@ class ModelManager:
                 deepseek_api_url=f"{reasoner_config['api_base_url']}/{reasoner_config['api_request_address']}",
                 openai_api_url=f"{target_config['api_base_url']}/{target_config['api_request_address']}",
                 is_origin_reasoning=reasoner_config.get("is_origin_reasoning", self.is_origin_reasoning),
-                proxy=proxy,
+                reasoner_proxy=reasoner_proxy,
+                target_proxy=target_proxy,
+                system_config=system_config,
             )
         
         # 缓存实例
@@ -181,7 +192,7 @@ class ModelManager:
         top_p: float = body.get("top_p", 0.9)
         presence_penalty: float = body.get("presence_penalty", 0.0)
         frequency_penalty: float = body.get("frequency_penalty", 0.0)
-        stream: bool = body.get("stream", True)
+        stream: bool = body.get("stream", False)
 
         # 模型特定验证
         if "sonnet" in model:  # Sonnet 模型温度必须在 0 到 1 之间
@@ -321,6 +332,128 @@ class ModelManager:
         # 保存配置到文件
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=4)
+
+    def validate_config(self, config: Dict[str, Any]) -> Tuple[bool, str]:
+        """验证配置文件的完整性和有效性
+        
+        Args:
+            config: 待验证的配置
+            
+        Returns:
+            Tuple[bool, str]: (是否有效, 错误信息)
+        """
+        try:
+            # 检查必要的顶级字段
+            required_fields = ["reasoner_models", "target_models", "composite_models", "proxy", "system"]
+            for field in required_fields:
+                if field not in config:
+                    return False, f"缺少必要字段: {field}"
+            
+            # 验证推理模型配置
+            reasoner_models = config.get("reasoner_models", {})
+            if not isinstance(reasoner_models, dict):
+                return False, "reasoner_models 必须是字典类型"
+            
+            for model_name, model_config in reasoner_models.items():
+                required_reasoner_fields = ["model_id", "api_key", "api_base_url", "api_request_address"]
+                for field in required_reasoner_fields:
+                    if field not in model_config:
+                        return False, f"推理模型 {model_name} 缺少必要字段: {field}"
+            
+            # 验证目标模型配置
+            target_models = config.get("target_models", {})
+            if not isinstance(target_models, dict):
+                return False, "target_models 必须是字典类型"
+            
+            for model_name, model_config in target_models.items():
+                required_target_fields = ["model_id", "api_key", "api_base_url", "api_request_address", "model_format"]
+                for field in required_target_fields:
+                    if field not in model_config:
+                        return False, f"目标模型 {model_name} 缺少必要字段: {field}"
+            
+            # 验证组合模型配置
+            composite_models = config.get("composite_models", {})
+            if not isinstance(composite_models, dict):
+                return False, "composite_models 必须是字典类型"
+            
+            for model_name, model_config in composite_models.items():
+                required_composite_fields = ["model_id", "reasoner_models", "target_models"]
+                for field in required_composite_fields:
+                    if field not in model_config:
+                        return False, f"组合模型 {model_name} 缺少必要字段: {field}"
+                
+                # 检查引用的模型是否存在
+                reasoner_ref = model_config.get("reasoner_models")
+                target_ref = model_config.get("target_models")
+                
+                if reasoner_ref not in reasoner_models:
+                    return False, f"组合模型 {model_name} 引用的推理模型 {reasoner_ref} 不存在"
+                
+                if target_ref not in target_models:
+                    return False, f"组合模型 {model_name} 引用的目标模型 {target_ref} 不存在"
+            
+            # 验证代理配置
+            proxy_config = config.get("proxy", {})
+            if not isinstance(proxy_config, dict):
+                return False, "proxy 配置必须是字典类型"
+            
+            # 验证系统配置
+            system_config = config.get("system", {})
+            if not isinstance(system_config, dict):
+                return False, "system 配置必须是字典类型"
+            
+            return True, ""
+            
+        except Exception as e:
+            return False, f"配置验证时发生错误: {str(e)}"
+
+    def export_config(self) -> Dict[str, Any]:
+        """导出当前配置
+        
+        Returns:
+            Dict[str, Any]: 当前配置的完整副本
+        """
+        # 重新加载最新配置
+        self.config = self._load_config()
+        
+        # 返回配置的深拷贝，避免外部修改影响内部状态
+        import copy
+        exported_config = copy.deepcopy(self.config)
+        
+        # 添加导出元数据
+        from datetime import datetime
+        exported_config["_export_metadata"] = {
+            "export_time": datetime.now().isoformat(),
+            "version": "1.0",
+            "source": "DeepClaude"
+        }
+        
+        return exported_config
+
+    def import_config(self, config: Dict[str, Any]) -> None:
+        """导入配置文件
+        
+        Args:
+            config: 要导入的配置
+            
+        Raises:
+            ValueError: 配置无效或验证失败
+        """
+        # 移除导出元数据（如果存在）
+        import copy
+        clean_config = copy.deepcopy(config)
+        if "_export_metadata" in clean_config:
+            del clean_config["_export_metadata"]
+        
+        # 验证配置
+        is_valid, error_msg = self.validate_config(clean_config)
+        if not is_valid:
+            raise ValueError(f"配置验证失败: {error_msg}")
+        
+        # 导入配置
+        self.update_config(clean_config)
+        
+        logger.info("配置导入成功")
 
 # 创建全局 ModelManager 实例
 model_manager = ModelManager()

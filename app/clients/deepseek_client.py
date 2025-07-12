@@ -1,5 +1,6 @@
 """DeepSeek API 客户端"""
 
+import os
 import json
 from typing import AsyncGenerator
 
@@ -14,6 +15,7 @@ class DeepSeekClient(BaseClient):
         api_key: str,
         api_url: str = "https://api.siliconflow.cn/v1/chat/completions",
         proxy: str = None,
+        system_config: dict = None,
     ):
         """初始化 DeepSeek 客户端
 
@@ -21,8 +23,10 @@ class DeepSeekClient(BaseClient):
             api_key: DeepSeek API密钥
             api_url: DeepSeek API地址
             proxy: 代理服务器地址
+            system_config: 系统配置，包含 save_deepseek_tokens 等设置
         """
         super().__init__(api_key, api_url, proxy=proxy)
+        self.system_config = system_config or {}
 
     def _process_think_tag_content(self, content: str) -> tuple[bool, str]:
         """处理包含 think 标签的内容
@@ -72,8 +76,19 @@ class DeepSeekClient(BaseClient):
         data = {
             "model": model,
             "messages": messages,
-            "stream": True,
+            "stream": True
         }
+
+        # 检查系统配置中的 save_deepseek_tokens 设置
+        save_deepseek_tokens = self.system_config.get("save_deepseek_tokens", False)
+        max_tokens_limit = self.system_config.get("save_deepseek_tokens_max_tokens", 5)
+        
+        logger.info(f"DeepSeek 客户端配置 - save_deepseek_tokens: {save_deepseek_tokens}, max_tokens_limit: {max_tokens_limit}")
+
+        # 只在支持原生推理且开启了节省 tokens 功能时才添加 max_tokens 参数
+        if is_origin_reasoning and save_deepseek_tokens:
+            data["max_tokens"] = max_tokens_limit
+            logger.info(f"已开启节省 DeepSeek tokens 功能，设置 max_tokens 为: {max_tokens_limit}")
 
         logger.debug(f"开始流式对话：{data}")
 

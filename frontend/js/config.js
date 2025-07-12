@@ -14,19 +14,30 @@ let configData = {
     system: {
         allow_origins: ["*"],
         log_level: "INFO",
-        api_key: "123456"
+        api_key: "123456",
+        save_deepseek_tokens: false,
+        save_deepseek_tokens_max_tokens: 5
     }
 };
 
 // 模态框和选项元素
 const addModelModal = new bootstrap.Modal(document.getElementById('add-model-modal'));
 const confirmDeleteModal = new bootstrap.Modal(document.getElementById('confirm-delete-modal'));
+const importConfigModal = new bootstrap.Modal(document.getElementById('import-config-modal'));
 const deleteModelNameSpan = document.getElementById('delete-model-name');
 const confirmDeleteBtn = document.getElementById('confirm-delete-btn');
 const addModelForm = document.getElementById('add-model-form');
 const addModelFields = document.getElementById('add-model-fields');
 const confirmAddModelBtn = document.getElementById('confirm-add-model');
 const addModelTitle = document.getElementById('add-model-title');
+
+// 导入导出相关元素
+const exportConfigBtn = document.getElementById('export-config-btn');
+const importConfigBtn = document.getElementById('import-config-btn');
+const configFileInput = document.getElementById('config-file-input');
+const configPreview = document.getElementById('config-preview');
+const configPreviewContent = document.getElementById('config-preview-content');
+const confirmImportBtn = document.getElementById('confirm-import-btn');
 
 // 模型容器
 const reasonerModelsContainer = document.getElementById('reasoner-models-container');
@@ -53,6 +64,9 @@ const addOriginBtn = document.getElementById('add-origin-btn');
 const logLevelSelect = document.getElementById('log-level');
 const systemApiKeyInput = document.getElementById('system-api-key');
 
+// 存储选择的配置文件内容
+let selectedConfigData = null;
+
 /**
  * 初始化配置管理
  */
@@ -66,6 +80,14 @@ function initConfig() {
     saveAllBtn.addEventListener('click', saveAllConfigurations);
     saveProxyBtn.addEventListener('click', saveProxySettings);
     saveSystemBtn.addEventListener('click', saveSystemSettings);
+    
+    // 绑定导入导出按钮事件
+    exportConfigBtn.addEventListener('click', exportConfiguration);
+    importConfigBtn.addEventListener('click', () => importConfigModal.show());
+    
+    // 绑定文件选择和导入确认事件
+    configFileInput.addEventListener('change', handleConfigFileSelect);
+    confirmImportBtn.addEventListener('click', handleConfigImport);
     
     // 绑定添加源按钮事件
     addOriginBtn.addEventListener('click', addAllowOriginInput);
@@ -117,8 +139,18 @@ async function loadConfigData() {
             configData.system = {
                 allow_origins: ["*"],
                 log_level: "INFO",
-                api_key: "123456"
+                api_key: "123456",
+                save_deepseek_tokens: false,
+                save_deepseek_tokens_max_tokens: 5
             };
+        }
+        
+        // 确保系统设置中包含所有必需的字段
+        if (!configData.system.hasOwnProperty('save_deepseek_tokens')) {
+            configData.system.save_deepseek_tokens = false;
+        }
+        if (!configData.system.hasOwnProperty('save_deepseek_tokens_max_tokens')) {
+            configData.system.save_deepseek_tokens_max_tokens = 5;
         }
         
         // 渲染模型
@@ -182,6 +214,7 @@ function renderReasonerModel(name, config) {
     form.querySelector('.api-request-address').value = config.api_request_address || '';
     form.querySelector('.is-origin-reasoning').checked = config.is_origin_reasoning || false;
     form.querySelector('.is-valid').checked = config.is_valid || false;
+    form.querySelector('.is-proxy-open').checked = config.proxy_open || false;
     
     // 绑定保存按钮事件
     form.querySelector('.save-model-btn').addEventListener('click', () => {
@@ -225,6 +258,7 @@ function renderTargetModel(name, config) {
     form.querySelector('.api-request-address').value = config.api_request_address || '';
     form.querySelector('.model-format').value = config.model_format || 'openai';
     form.querySelector('.is-valid').checked = config.is_valid || false;
+    form.querySelector('.is-proxy-open').checked = config.proxy_open || false;
     
     // 绑定保存按钮事件
     form.querySelector('.save-model-btn').addEventListener('click', () => {
@@ -325,7 +359,7 @@ function renderProxySettings() {
  * 渲染系统设置
  */
 function renderSystemSettings() {
-    const { allow_origins, log_level, api_key } = configData.system;
+    const { allow_origins, log_level, api_key, save_deepseek_tokens, save_deepseek_tokens_max_tokens } = configData.system;
     
     // 清空允许的源容器
     allowOriginsContainer.innerHTML = '';
@@ -344,6 +378,31 @@ function renderSystemSettings() {
     
     // 设置 API Key
     systemApiKeyInput.value = api_key || '123456';
+    
+    // 设置 DeepSeek tokens 相关设置
+    const saveDeepseekTokensSwitch = document.getElementById('save-deepseek-tokens');
+    const deepseekTokensMaxInput = document.getElementById('deepseek-tokens-max');
+    const deepseekTokensMaxContainer = document.getElementById('deepseek-tokens-max-container');
+    
+    if (saveDeepseekTokensSwitch) {
+        saveDeepseekTokensSwitch.checked = save_deepseek_tokens || false;
+        
+        // 根据开关状态显示/隐藏最大限制设置
+        if (deepseekTokensMaxContainer) {
+            deepseekTokensMaxContainer.style.display = saveDeepseekTokensSwitch.checked ? 'block' : 'none';
+        }
+        
+        // 绑定开关变化事件
+        saveDeepseekTokensSwitch.addEventListener('change', function() {
+            if (deepseekTokensMaxContainer) {
+                deepseekTokensMaxContainer.style.display = this.checked ? 'block' : 'none';
+            }
+        });
+    }
+    
+    if (deepseekTokensMaxInput) {
+        deepseekTokensMaxInput.value = save_deepseek_tokens_max_tokens || 5;
+    }
 }
 
 /**
@@ -373,7 +432,8 @@ function saveReasonerModel(name, form) {
         api_base_url: form.querySelector('.api-base-url').value,
         api_request_address: form.querySelector('.api-request-address').value,
         is_origin_reasoning: form.querySelector('.is-origin-reasoning').checked,
-        is_valid: form.querySelector('.is-valid').checked
+        is_valid: form.querySelector('.is-valid').checked,
+        proxy_open: form.querySelector('.is-proxy-open').checked
     };
     
     configData.reasoner_models[name] = modelConfig;
@@ -394,7 +454,8 @@ function saveTargetModel(name, form) {
         api_base_url: form.querySelector('.api-base-url').value,
         api_request_address: form.querySelector('.api-request-address').value,
         model_format: form.querySelector('.model-format').value,
-        is_valid: form.querySelector('.is-valid').checked
+        is_valid: form.querySelector('.is-valid').checked,
+        proxy_open: form.querySelector('.is-proxy-open').checked
     };
     
     configData.target_models[name] = modelConfig;
@@ -452,10 +513,36 @@ function saveSystemSettings() {
         // 获取 API Key
         const apiKey = systemApiKeyInput.value.trim() || '123456';
         
+        // 获取 DeepSeek tokens 相关设置
+        const saveDeepseekTokensSwitch = document.getElementById('save-deepseek-tokens');
+        const deepseekTokensMaxInput = document.getElementById('deepseek-tokens-max');
+        
+        // 添加详细的调试信息
+        console.log('调试信息 - DOM 元素状态:', {
+            saveDeepseekTokensSwitch: saveDeepseekTokensSwitch,
+            saveDeepseekTokensSwitchExists: !!saveDeepseekTokensSwitch,
+            saveDeepseekTokensSwitchChecked: saveDeepseekTokensSwitch ? saveDeepseekTokensSwitch.checked : 'element not found',
+            deepseekTokensMaxInput: deepseekTokensMaxInput,
+            deepseekTokensMaxInputExists: !!deepseekTokensMaxInput,
+            deepseekTokensMaxInputValue: deepseekTokensMaxInput ? deepseekTokensMaxInput.value : 'element not found'
+        });
+        
+        const saveDeepseekTokens = saveDeepseekTokensSwitch ? saveDeepseekTokensSwitch.checked : false;
+        const deepseekTokensMax = deepseekTokensMaxInput ? parseInt(deepseekTokensMaxInput.value) || 5 : 5;
+        
+        console.log('保存系统设置 - DeepSeek tokens 设置:', {
+            saveDeepseekTokens,
+            deepseekTokensMax
+        });
+        
         // 更新配置数据
         configData.system.allow_origins = origins;
         configData.system.log_level = logLevel;
         configData.system.api_key = apiKey;
+        configData.system.save_deepseek_tokens = saveDeepseekTokens;
+        configData.system.save_deepseek_tokens_max_tokens = deepseekTokensMax;
+        
+        console.log('更新后的配置数据 - 系统设置:', configData.system);
         
         saveAllConfigurations();
     } catch (error) {
@@ -469,21 +556,64 @@ function saveSystemSettings() {
  */
 async function saveAllConfigurations() {
     try {
+        // 在保存之前，先从界面读取最新的设置
+        // 获取代理设置
+        configData.proxy.proxy_open = proxyOpenSwitch.checked;
+        configData.proxy.proxy_address = proxyAddressInput.value.trim();
+        
+        // 获取系统设置
+        const originInputs = document.querySelectorAll('.allow-origin');
+        const origins = Array.from(originInputs).map(input => input.value.trim()).filter(value => value);
+        const logLevel = logLevelSelect.value;
+        const apiKey = systemApiKeyInput.value.trim() || '123456';
+        
+        // 获取 DeepSeek tokens 相关设置
+        const saveDeepseekTokensSwitch = document.getElementById('save-deepseek-tokens');
+        const deepseekTokensMaxInput = document.getElementById('deepseek-tokens-max');
+        
+        console.log('saveAllConfigurations - 调试信息 - DOM 元素状态:', {
+            saveDeepseekTokensSwitch: saveDeepseekTokensSwitch,
+            saveDeepseekTokensSwitchExists: !!saveDeepseekTokensSwitch,
+            saveDeepseekTokensSwitchChecked: saveDeepseekTokensSwitch ? saveDeepseekTokensSwitch.checked : 'element not found',
+            deepseekTokensMaxInput: deepseekTokensMaxInput,
+            deepseekTokensMaxInputExists: !!deepseekTokensMaxInput,
+            deepseekTokensMaxInputValue: deepseekTokensMaxInput ? deepseekTokensMaxInput.value : 'element not found'
+        });
+        
+        const saveDeepseekTokens = saveDeepseekTokensSwitch ? saveDeepseekTokensSwitch.checked : false;
+        const deepseekTokensMax = deepseekTokensMaxInput ? parseInt(deepseekTokensMaxInput.value) || 5 : 5;
+        
+        // 更新系统配置
+        configData.system.allow_origins = origins;
+        configData.system.log_level = logLevel;
+        configData.system.api_key = apiKey;
+        configData.system.save_deepseek_tokens = saveDeepseekTokens;
+        configData.system.save_deepseek_tokens_max_tokens = deepseekTokensMax;
+        
+        console.log('准备保存的完整配置数据:', JSON.stringify(configData, null, 2));
+        
         showToast('正在保存配置...', 'info');
         
-        const apiKey = Auth.getCurrentApiKey();
+        const authApiKey = Auth.getCurrentApiKey();
         const response = await fetch(`${Auth.API_BASE_URL}/v1/config`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${apiKey}`,
+                'Authorization': `Bearer ${authApiKey}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(configData)
         });
         
+        console.log('保存配置请求响应状态:', response.status);
+        
         if (!response.ok) {
+            const errorText = await response.text();
+            console.error('保存配置失败，响应内容:', errorText);
             throw new Error('保存配置失败');
         }
+        
+        const responseData = await response.json();
+        console.log('保存配置成功，响应数据:', responseData);
         
         showToast('所有配置已保存', 'success');
     } catch (error) {
@@ -712,6 +842,186 @@ function showToast(message, type) {
     toastElement.addEventListener('hidden.bs.toast', () => {
         toastElement.remove();
     });
+}
+
+/**
+ * 导出配置文件
+ */
+async function exportConfiguration() {
+    try {
+        showToast('正在导出配置...', 'info');
+        
+        const apiKey = Auth.getCurrentApiKey();
+        const response = await fetch(`${Auth.API_BASE_URL}/v1/config/export`, {
+            headers: {
+                'Authorization': `Bearer ${apiKey}`
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error('导出配置失败');
+        }
+        
+        const configData = await response.json();
+        
+        // 创建下载链接
+        const dataStr = JSON.stringify(configData, null, 2);
+        const dataBlob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(dataBlob);
+        
+        // 生成文件名
+        const now = new Date();
+        const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const filename = `deepclaude_config_${timestamp}.json`;
+        
+        // 创建下载链接并触发下载
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // 清理URL
+        URL.revokeObjectURL(url);
+        
+        showToast('配置导出成功', 'success');
+    } catch (error) {
+        console.error('导出配置时发生错误:', error);
+        showToast('导出配置失败: ' + error.message, 'danger');
+    }
+}
+
+/**
+ * 处理配置文件选择
+ * @param {Event} event - 文件选择事件
+ */
+function handleConfigFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) {
+        configPreview.classList.add('d-none');
+        confirmImportBtn.disabled = true;
+        selectedConfigData = null;
+        return;
+    }
+    
+    // 检查文件类型
+    if (!file.name.endsWith('.json')) {
+        showToast('请选择JSON格式的配置文件', 'warning');
+        configFileInput.value = '';
+        configPreview.classList.add('d-none');
+        confirmImportBtn.disabled = true;
+        selectedConfigData = null;
+        return;
+    }
+    
+    // 读取文件内容
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const configContent = JSON.parse(e.target.result);
+            selectedConfigData = configContent;
+            
+            // 显示配置预览
+            displayConfigPreview(configContent);
+            configPreview.classList.remove('d-none');
+            confirmImportBtn.disabled = false;
+            
+        } catch (error) {
+            showToast('配置文件格式不正确，请选择有效的JSON文件', 'danger');
+            configFileInput.value = '';
+            configPreview.classList.add('d-none');
+            confirmImportBtn.disabled = true;
+            selectedConfigData = null;
+        }
+    };
+    
+    reader.readAsText(file);
+}
+
+/**
+ * 显示配置预览
+ * @param {Object} config - 配置数据
+ */
+function displayConfigPreview(config) {
+    const preview = document.createElement('div');
+    preview.className = 'small';
+    
+    // 统计配置信息
+    const reasonerCount = Object.keys(config.reasoner_models || {}).length;
+    const targetCount = Object.keys(config.target_models || {}).length;
+    const compositeCount = Object.keys(config.composite_models || {}).length;
+    
+    // 检查是否有导出元数据
+    const exportTime = config._export_metadata?.export_time || '未知';
+    const exportSource = config._export_metadata?.source || '未知';
+    
+    preview.innerHTML = `
+        <div class="mb-2">
+            <strong>配置统计：</strong>
+        </div>
+        <ul class="mb-2">
+            <li>推理模型：${reasonerCount} 个</li>
+            <li>目标模型：${targetCount} 个</li>
+            <li>组合模型：${compositeCount} 个</li>
+        </ul>
+        <div class="mb-2">
+            <strong>导出信息：</strong>
+        </div>
+        <ul class="mb-0">
+            <li>导出时间：${exportTime}</li>
+            <li>来源：${exportSource}</li>
+        </ul>
+    `;
+    
+    configPreviewContent.innerHTML = '';
+    configPreviewContent.appendChild(preview);
+}
+
+/**
+ * 处理配置导入
+ */
+async function handleConfigImport() {
+    if (!selectedConfigData) {
+        showToast('请先选择配置文件', 'warning');
+        return;
+    }
+    
+    try {
+        showToast('正在导入配置...', 'info');
+        
+        const apiKey = Auth.getCurrentApiKey();
+        const response = await fetch(`${Auth.API_BASE_URL}/v1/config/import`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${apiKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(selectedConfigData)
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || '导入配置失败');
+        }
+        
+        // 关闭模态框
+        importConfigModal.hide();
+        
+        // 清理状态
+        configFileInput.value = '';
+        configPreview.classList.add('d-none');
+        confirmImportBtn.disabled = true;
+        selectedConfigData = null;
+        
+        // 重新加载配置数据
+        await loadConfigData();
+        
+        showToast('配置导入成功', 'success');
+    } catch (error) {
+        console.error('导入配置时发生错误:', error);
+        showToast('导入配置失败: ' + error.message, 'danger');
+    }
 }
 
 // 导出函数和变量

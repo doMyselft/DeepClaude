@@ -20,7 +20,9 @@ class OpenAICompatibleComposite:
         deepseek_api_url: str = "https://api.deepseek.com/v1/chat/completions",
         openai_api_url: str = "",  # 将由具体实现提供
         is_origin_reasoning: bool = True,
-        proxy: str = None,
+        reasoner_proxy: str = None,
+        target_proxy: str = None,
+        system_config: dict = None
     ):
         """初始化 API 客户端
 
@@ -30,10 +32,18 @@ class OpenAICompatibleComposite:
             deepseek_api_url: DeepSeek API地址
             openai_api_url: OpenAI 兼容服务的 API地址
             is_origin_reasoning: 是否使用原始推理过程
-            proxy: 代理服务器地址
+            reasoner_proxy: reasoner模型代理服务器地址
+            target_proxy: target模型代理服务器地址
+            system_config: 系统配置，包含 save_deepseek_tokens 等设置
         """
-        self.deepseek_client = DeepSeekClient(deepseek_api_key, deepseek_api_url, proxy=proxy)
-        self.openai_client = OpenAICompatibleClient(openai_api_key, openai_api_url, proxy=proxy)
+        self.system_config = system_config or {}
+        self.deepseek_client = DeepSeekClient(
+            deepseek_api_key, 
+            deepseek_api_url, 
+            proxy=reasoner_proxy,
+            system_config=self.system_config
+        )
+        self.openai_client = OpenAICompatibleClient(openai_api_key, openai_api_url, proxy=target_proxy)
         self.is_origin_reasoning = is_origin_reasoning
 
     async def chat_completions_with_stream(
@@ -116,7 +126,43 @@ class OpenAICompatibleComposite:
                         break
             except Exception as e:
                 logger.error(f"处理 DeepSeek 流时发生错误: {e}")
-                await reasoning_queue.put("")
+                # 构造错误响应
+                error_message = str(e)
+                error_info = {
+                    "message": error_message,
+                    "type": "api_error",
+                    "code": "invalid_request_error"
+                }
+                
+                # 处理常见的错误信息
+                if "Input length" in error_message:
+                    error_info["message"] = "输入的上下文内容过长，超过了模型的最大处理长度限制。请减少输入内容或分段处理。"
+                    error_info["message_zh"] = "输入的上下文内容过长，超过了模型的最大处理长度限制。请减少输入内容或分段处理。"
+                    error_info["message_en"] = error_message
+                elif "InvalidParameter" in error_message:
+                    error_info["message"] = "请求参数无效，请检查输入内容。"
+                    error_info["message_zh"] = "请求参数无效，请检查输入内容。"
+                    error_info["message_en"] = error_message
+                elif "BadRequest" in error_message:
+                    error_info["message"] = "请求格式错误，请检查输入内容。"
+                    error_info["message_zh"] = "请求格式错误，请检查输入内容。"
+                    error_info["message_en"] = error_message
+
+                error_response = {
+                    "id": chat_id,
+                    "object": "chat.completion.chunk",
+                    "created": created_time,
+                    "model": deepseek_model,
+                    "error": error_info
+                }
+                await output_queue.put(
+                    f"data: {json.dumps(error_response)}\n\n".encode("utf-8")
+                )
+                # 发送结束标记
+                await output_queue.put(b"data: [DONE]\n\n")
+                # 标记任务结束
+                await output_queue.put(None)
+                return
             # 标记 DeepSeek 任务结束
             logger.info("DeepSeek 任务处理完成，标记结束")
             await output_queue.put(None)
@@ -135,8 +181,10 @@ class OpenAICompatibleComposite:
                 # 构造 OpenAI 的输入消息
                 openai_messages = messages.copy()
                 combined_content = f"""
-                Here's my another model's reasoning process:\n{reasoning}\n\n
-                Based on this reasoning, provide your response directly to me:"""
+                ******The above is user information*****
+The following is the reasoning process of another model:****\n{reasoning}\n\n ****
+Based on this reasoning, combined with your knowledge, when the current reasoning conflicts with your knowledge, you are more confident that you can adopt your own knowledge, which is completely acceptable. Please provide the user with a complete answer directly. 
+***Notice, Here is your settings: SELF_TALK: off REASONING: off THINKING: off PLANNING: off THINKING_BUDGET: < 100 tokens ***:"""
 
                 # 检查过滤后的消息列表是否为空
                 if not openai_messages:
@@ -158,6 +206,30 @@ class OpenAICompatibleComposite:
                     messages=openai_messages,
                     model=target_model,
                 ):
+                    # 检查是否是结束标记
+                    if isinstance(content, dict) and content.get("finish_reason") == "stop":
+                        logger.debug("收到 finish_reason=stop，准备发送结束响应")
+                        # 发送结束响应
+                        end_response = {
+                            "id": chat_id,
+                            "object": "chat.completion.chunk",
+                            "created": created_time,
+                            "model": target_model,
+                            "choices": [
+                                {
+                                    "delta": {},
+                                    "finish_reason": "stop",
+                                    "index": 0
+                                }
+                            ]
+                        }
+                        await output_queue.put(
+                            f"data: {json.dumps(end_response)}\n\n".encode("utf-8")
+                        )
+                        logger.debug("结束响应已发送到队列")
+                        break
+                    
+                    # 正常内容响应
                     response = {
                         "id": chat_id,
                         "object": "chat.completion.chunk",
@@ -175,6 +247,43 @@ class OpenAICompatibleComposite:
                     )
             except Exception as e:
                 logger.error(f"处理 OpenAI 兼容流时发生错误: {e}")
+                # 构造错误响应
+                error_message = str(e)
+                error_info = {
+                    "message": error_message,
+                    "type": "api_error",
+                    "code": "invalid_request_error"
+                }
+                
+                # 处理常见的错误信息
+                if "Input length" in error_message:
+                    error_info["message"] = "输入的上下文内容过长，超过了模型的最大处理长度限制。请减少输入内容或分段处理。"
+                    error_info["message_zh"] = "输入的上下文内容过长，超过了模型的最大处理长度限制。请减少输入内容或分段处理。"
+                    error_info["message_en"] = error_message
+                elif "InvalidParameter" in error_message:
+                    error_info["message"] = "请求参数无效，请检查输入内容。"
+                    error_info["message_zh"] = "请求参数无效，请检查输入内容。"
+                    error_info["message_en"] = error_message
+                elif "BadRequest" in error_message:
+                    error_info["message"] = "请求格式错误，请检查输入内容。"
+                    error_info["message_zh"] = "请求格式错误，请检查输入内容。"
+                    error_info["message_en"] = error_message
+
+                error_response = {
+                    "id": chat_id,
+                    "object": "chat.completion.chunk",
+                    "created": created_time,
+                    "model": target_model,
+                    "error": error_info
+                }
+                await output_queue.put(
+                    f"data: {json.dumps(error_response)}\n\n".encode("utf-8")
+                )
+                # 发送结束标记
+                await output_queue.put(b"data: [DONE]\n\n")
+                # 标记任务结束
+                await output_queue.put(None)
+                return
             # 标记 OpenAI 任务结束
             logger.info("OpenAI 兼容任务处理完成，标记结束")
             await output_queue.put(None)
@@ -189,10 +298,13 @@ class OpenAICompatibleComposite:
             item = await output_queue.get()
             if item is None:
                 finished_tasks += 1
+                logger.debug(f"任务完成计数: {finished_tasks}/2")
                 continue
+            logger.debug(f"主循环输出数据: {item.decode('utf-8')[:100] if len(item) > 100 else item.decode('utf-8')}")
             yield item
 
         # 发送结束标记
+        logger.debug("所有任务完成，发送结束标记")
         yield b"data: [DONE]\n\n"
 
     async def chat_completions_without_stream(
@@ -223,29 +335,41 @@ class OpenAICompatibleComposite:
         }
 
         content_parts = []
-        async for chunk in self.chat_completions_with_stream(
-            messages, model_arg, deepseek_model, target_model
-        ):
-            if chunk != b"data: [DONE]\n\n":
-                try:
-                    response_data = json.loads(chunk.decode("utf-8")[6:])
-                    if (
-                        "choices" in response_data
-                        and len(response_data["choices"]) > 0
-                        and "delta" in response_data["choices"][0]
-                    ):
-                        delta = response_data["choices"][0]["delta"]
-                        if "content" in delta and delta["content"]:
-                            content_parts.append(delta["content"])
-                except json.JSONDecodeError:
-                    continue
+        reasoning_parts = []
+        try:
+            async for chunk in self.chat_completions_with_stream(
+                messages, model_arg, deepseek_model, target_model
+            ):
+                if chunk != b"data: [DONE]\n\n":
+                    try:
+                        response_data = json.loads(chunk.decode("utf-8")[6:])
+                        if (
+                            "choices" in response_data
+                            and len(response_data["choices"]) > 0
+                            and "delta" in response_data["choices"][0]
+                        ):
+                            delta = response_data["choices"][0]["delta"]
+                            if "content" in delta and delta["content"]:
+                                content_parts.append(delta["content"])
+                            if "reasoning_content" in delta and delta["reasoning_content"]:
+                                reasoning_parts.append(delta["reasoning_content"])
+                    except json.JSONDecodeError:
+                        continue
 
-        full_response["choices"] = [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": "".join(content_parts)},
-                "finish_reason": "stop",
-            }
-        ]
+            full_response["choices"] = [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant", 
+                        "content": "".join(content_parts),
+                        "reasoning_content": "".join(reasoning_parts)
+                    },
+                    "finish_reason": "stop",
+                }
+            ]
 
-        return full_response
+            return full_response
+        except Exception as e:
+            logger.error(f"处理非流式请求时发生错误: {e}")
+            # 直接抛出异常，不再继续处理
+            raise e
